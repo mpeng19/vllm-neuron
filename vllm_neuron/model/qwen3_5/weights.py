@@ -37,6 +37,11 @@ def is_text_weight(name: str) -> bool:
     return name == "lm_head.weight" or name.startswith(TEXT_PREFIX)
 
 
+def lm_head_checkpoint_key(cfg) -> str:
+    """Checkpoint tensor of the LM head: the input embedding when tie_word_embeddings."""
+    return f"{TEXT_PREFIX}embed_tokens.weight" if cfg.tie_word_embeddings else "lm_head.weight"
+
+
 def expected_text_weight_names(cfg) -> set[str]:
     """Every HF text-tower tensor name the model needs, from the config."""
     names = {

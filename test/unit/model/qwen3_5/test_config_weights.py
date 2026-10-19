@@ -65,6 +65,18 @@ def test_weight_names_match_real_index(qwen3_5_config, weights, raw):
 
 
 
+def test_tied_lm_head_loads_from_embedding(qwen3_5_config, weights, raw):
+    """Small checkpoints (0.8B-9B) tie the LM head to the embedding and ship no lm_head.weight."""
+    tied = copy.deepcopy(raw)
+    tied["tie_word_embeddings"] = tied["text_config"]["tie_word_embeddings"] = True
+    cfg = qwen3_5_config.Qwen3_5Config.from_configs(tied)
+    assert cfg.tie_word_embeddings
+    assert weights.lm_head_checkpoint_key(cfg) == f"{weights.TEXT_PREFIX}embed_tokens.weight"
+    assert "lm_head.weight" not in weights.expected_text_weight_names(cfg)
+    untied = qwen3_5_config.Qwen3_5Config.from_configs(raw)
+    assert weights.lm_head_checkpoint_key(untied) == "lm_head.weight"
+
+
 def test_fp8_helpers_roundtrip_and_trn2_range():
     from vllm_neuron.model.qwen3_5 import weights as W
 

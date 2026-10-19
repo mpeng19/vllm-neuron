@@ -211,7 +211,7 @@ class Qwen3_5MTP(nn.Module):
     def _weight_mappings(self) -> dict:
         m = {
             "model.embed_tokens.weight": f"{CKPT}embed_tokens.weight",
-            "lm_head.weight": "lm_head.weight",
+            "lm_head.weight": W.lm_head_checkpoint_key(self.config),
             "model.fc_weight": MTP + "fc.weight",
             "model.pre_fc_norm_embedding.weight": MTP + "pre_fc_norm_embedding.weight",
             "model.pre_fc_norm_hidden.weight": MTP + "pre_fc_norm_hidden.weight",

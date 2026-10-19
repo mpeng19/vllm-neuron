@@ -1274,7 +1274,8 @@ def _layer_weight_mappings(layer, pre: str, ck: str) -> dict:
 
 @async_speculative_decoding
 class Qwen3_5ForCausalLM(nn.Module):
-    """Qwen3.5 dense hybrid text model + column-parallel LM head (untied)."""
+    """Qwen3.5 dense hybrid text model + column-parallel LM head (tied checkpoints, e.g. the
+    0.8B-9B models, load it from the embedding)."""
 
     def __init__(self, config: Qwen3_5Config):
         super().__init__()
@@ -1419,7 +1420,7 @@ class Qwen3_5ForCausalLM(nn.Module):
         m = {
             "model.embed_tokens.weight": f"{CKPT}embed_tokens.weight",
             "model.norm.weight": f"{CKPT}norm.weight",
-            "lm_head.weight": "lm_head.weight",
+            "lm_head.weight": W.lm_head_checkpoint_key(self.config),
         }
         for i, layer in enumerate(self.model.layers):
             m.update(_layer_weight_mappings(layer, f"model.layers.{i}.", f"{CKPT}layers.{i}."))

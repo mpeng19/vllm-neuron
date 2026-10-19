@@ -26,7 +26,7 @@ from nkilib.core.utils.allocator import SbufManager
 from nkilib.core.utils.common_types import QuantizationType
 
 from libtorch_neuronx_lite.nki.nki_hop import wrap_nki
-from vllm_neuron.utils.neuron_utils import can_run_kernel
+from vllm_neuron.utils.neuron_utils import can_run_kernel, is_gen2_platform, nki_grid
 
 from vllm_neuron.functional.attention.attention_decode_mask import (
     _resize_block_len as _mask_resize_block_len,
@@ -1224,6 +1224,10 @@ def _can_use_attention_block_kernel(
     if not can_run_kernel(X):
         return False
 
+    # attention_block_tkg asserts nc_version >= gen3: Trn1 / Inf2 take the torch path.
+    if is_gen2_platform():
+        return False
+
     # TODO: Enable once the attention-DP + DCP kernel combination is covered
     # end-to-end. Until then, preserve the established torch attention-DP path.
     if attention_dp > 1:
@@ -1612,7 +1616,7 @@ def attention_decode(
             )
             dcp_group_ranks = tuple(dcp_group.ranks)
             wrapped = wrap_nki(_torch_compatible_attention_block_tkg_kernel_dcp)
-            kernel_out = wrapped[2](
+            kernel_out = wrapped[nki_grid()](
                 X,
                 X_hidden_dim_actual=X_hidden_dim_actual,
                 rmsnorm_X_enabled=rmsnorm_X_enabled,
@@ -1667,7 +1671,7 @@ def attention_decode(
             )
         else:
             wrapped = wrap_nki(block_kernel or _torch_compatible_attention_block_tkg_kernel)
-            kernel_out = wrapped[2](
+            kernel_out = wrapped[nki_grid()](
                 X,
                 X_hidden_dim_actual=X_hidden_dim_actual,
                 rmsnorm_X_enabled=rmsnorm_X_enabled,

@@ -86,7 +86,7 @@ def maybe_transpose_mask_for_qk_swap(
 jitted_gen_mask = nki.jit()(gen_mask_tkg_hbm)
 
 from libtorch_neuronx_lite.nki.nki_hop import wrap_nki
-from vllm_neuron.utils.neuron_utils import can_run_kernel
+from vllm_neuron.utils.neuron_utils import can_run_kernel, is_gen2_platform, nki_grid
 
 P_MAX = 128
 
@@ -250,7 +250,7 @@ def _gen_mask_via_kernel(
     wrapped = wrap_nki(jitted_gen_mask)
     pos_ids = pos_ids.to(torch.float32)
 
-    lnc = 2
+    lnc = nki_grid()
     if s_prior % (2 * P_MAX) != 0:
         lnc = 1
 
@@ -280,6 +280,9 @@ def _can_use_kernel(
     """
     if not can_run_kernel(pos_ids):
         return False
+    # Trn1 / Inf2: nkilib gen_mask_tkg uses tensor_copy on the scalar engine (gen3+).
+    if is_gen2_platform():
+        return False
 
     return True
 
@@ -305,7 +308,7 @@ def _resize_block_len(
     if block_len <= 0:
         return block_len
 
-    lnc = 2
+    lnc = nki_grid()
     batch_sharded = (bs % lnc == 0) and (
         bs * q_head * s_active >= P_MAX or s_prior <= 2 * P_MAX
     )

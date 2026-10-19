@@ -31,7 +31,7 @@ from vllm_neuron.functional.vendored_kernels.rotational_topk import (
 )
 from libtorch_neuronx_lite.nki.nki_dtype import torch_to_nki_dtype
 from libtorch_neuronx_lite.nki.nki_hop import wrap_nki
-from vllm_neuron.utils.neuron_utils import can_run_kernel
+from vllm_neuron.utils.neuron_utils import can_run_kernel, is_gen2_platform, nki_grid
 
 logger = logging.getLogger(__name__)
 
@@ -41,6 +41,11 @@ logger = logging.getLogger(__name__)
 # the exact config the real run will build; keep it as one source of truth here.
 # (The kernel forces n_prgs to 1 internally when BxS == 1.)
 _ROTATIONAL_TOPK_NUM_PROGRAMS = 2
+
+
+def _rotational_topk_num_programs() -> int:
+    """_ROTATIONAL_TOPK_NUM_PROGRAMS, capped at the launch grid (1 on Trn1 / Inf2, LNC=1)."""
+    return min(_ROTATIONAL_TOPK_NUM_PROGRAMS, nki_grid())
 
 
 # Common NKI top-k selection seam.
@@ -345,6 +350,9 @@ def _can_use_nki_topk(tensor: Tensor, k: int, dim: int) -> bool:
     """
     if not can_run_kernel(tensor):
         return False
+    # Trn1 / Inf2: rotational top-k uses hardware DGE (dge_mode.hwdge, gen3+).
+    if is_gen2_platform():
+        return False
     if tensor.ndim < 2 or dim not in (-1, tensor.ndim - 1):
         return False
     # Kernel is tested only for bf16/fp32 (its pad sentinel _get_dtype_min has no
@@ -403,7 +411,7 @@ def _rotational_topk_config_compiles(
             inp_shape=(n_rows, vocab_size),
             inp_dtype=nki_dtype,
             k=k,
-            num_programs=_ROTATIONAL_TOPK_NUM_PROGRAMS,
+            num_programs=_rotational_topk_num_programs(),
         )
         create_rotational_topk_config(
             inp_shape=(n_rows, vocab_size), topk_config=topk_config
@@ -440,7 +448,7 @@ def _get_rotational_topk_config(n_rows: int, vocab_size: int, k: int, nki_dtype)
         inp_shape=(n_rows, vocab_size),
         inp_dtype=nki_dtype,
         k=k,
-        num_programs=_ROTATIONAL_TOPK_NUM_PROGRAMS,  # kernel forces 1 when BxS == 1
+        num_programs=_rotational_topk_num_programs(),  # kernel forces 1 when BxS == 1
     )
     return create_rotational_topk_config(
         inp_shape=(n_rows, vocab_size), topk_config=topk_config

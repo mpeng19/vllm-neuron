@@ -13,7 +13,7 @@ from nkilib.core.utils.common_types import (
 )
 from vllm_neuron import envs
 from libtorch_neuronx_lite.nki.nki_hop import wrap_nki
-from vllm_neuron.utils.neuron_utils import can_run_kernel
+from vllm_neuron.utils.neuron_utils import can_run_kernel, is_gen2_platform, nki_grid
 
 if envs.VLLM_NEURON_MLP_FORCE_TKG:
     import nki.isa as nisa
@@ -173,7 +173,7 @@ def mlp(
             QuantizationType.ROW_MX,
         )
 
-        result = wrapped_mlp[2](
+        result = wrapped_mlp[nki_grid()](
             hidden_tensor=hidden_3d,
             gate_proj_weights_tensor=gate_w,
             up_proj_weights_tensor=up_w,
@@ -296,6 +296,9 @@ def _can_use_kernel(
         True
     """
     if not can_run_kernel(hidden):
+        return False
+    # Trn1 / Inf2: nkilib mlp transposes in BF16 (gen2 transposes need an FP32 PSUM dst).
+    if is_gen2_platform():
         return False
     T, H = hidden.shape
 

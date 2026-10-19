@@ -25,7 +25,7 @@ from nkilib.core.rmsnorm.rmsnorm_quant_constants import RMSNormQuantConstants
 from nkilib.core.utils.common_types import DtypeMode, NormType, QuantizationType
 
 from libtorch_neuronx_lite.nki.nki_hop import wrap_nki
-from vllm_neuron.utils.neuron_utils import can_run_kernel
+from vllm_neuron.utils.neuron_utils import can_run_kernel, nki_grid
 
 
 # Matches ``quant_data_type_range`` in the kernel (TRN2 float8_e4m3).
@@ -325,7 +325,7 @@ def rmsnorm_quant(
 
     # LNC-2 sharding — grid size 2, matching attention_decode / mlp.
     wrapped = wrap_nki(_torch_compatible_rmsnorm_quant_kernel)
-    out = wrapped[2](
+    out = wrapped[nki_grid()](
         hidden=hidden_in,
         ln_w=ln_w,
         input_dequant_scale=input_dequant_scale,

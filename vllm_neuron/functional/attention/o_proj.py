@@ -8,7 +8,7 @@ from nkilib.core.output_projection.output_projection_cte import (
 from nkilib.core.utils.common_types import QuantizationType
 
 from libtorch_neuronx_lite.nki.nki_hop import wrap_nki
-from vllm_neuron.utils.neuron_utils import can_run_kernel
+from vllm_neuron.utils.neuron_utils import can_run_kernel, is_gen2_platform, nki_grid
 
 P_MAX = 128
 MAX_VALIDATED_H_SIZE = 16384 + 4321
@@ -30,6 +30,9 @@ def _can_use_kernel(
     lnc_size = 2
 
     if not can_run_kernel(active):
+        return False
+    # Trn1 / Inf2: nkilib output_projection_cte uses tensor_copy on the scalar engine (gen3+).
+    if is_gen2_platform():
         return False
 
     if active.dim() != 4:
@@ -194,7 +197,7 @@ def o_proj(
     if _can_use_kernel(active, weight, quantization_type):
         wrapped_output_projection = wrap_nki(output_projection)
 
-        return wrapped_output_projection[2](
+        return wrapped_output_projection[nki_grid()](
             active,
             weight,
             bias,

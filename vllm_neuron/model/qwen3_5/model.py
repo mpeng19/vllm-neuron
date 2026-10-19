@@ -112,10 +112,11 @@ def _out_proj_tkg(x, weight, weight_scale=None, input_scale=None, d_head: int = 
     """x [T, N*d_head] @ weight [N*d_head, H] with the token-generation output-projection kernel
     (T <= 128; BF16, or static FP8 when scales are given). NF.o_proj always uses the context
     kernel, which is slower for a few tokens. Returns None where the kernel does not apply."""
-    from vllm_neuron.utils.neuron_utils import can_run_kernel
+    from vllm_neuron.utils.neuron_utils import can_run_kernel, is_gen2_platform, nki_grid
 
     T, ND = x.shape
-    if T > 128 or ND % d_head or not can_run_kernel(x):
+    # Trn1 / Inf2: output_projection_tkg uses tensor_copy on the scalar engine (gen3+).
+    if T > 128 or ND % d_head or not can_run_kernel(x) or is_gen2_platform():
         return None
     from libtorch_neuronx_lite.nki.nki_hop import wrap_nki
     from nkilib.core.output_projection.output_projection_tkg import output_projection_tkg
@@ -123,7 +124,7 @@ def _out_proj_tkg(x, weight, weight_scale=None, input_scale=None, d_head: int = 
 
     attention = x.reshape(T, ND // d_head, d_head).permute(2, 0, 1).unsqueeze(-1)  # [D, B=T, N, S=1]
     quant = QuantizationType.STATIC if weight_scale is not None else QuantizationType.NONE
-    return wrap_nki(output_projection_tkg)[2](attention.contiguous(), weight, None, quant,
+    return wrap_nki(output_projection_tkg)[nki_grid()](attention.contiguous(), weight, None, quant,
                                               weight_scale, input_scale)
 
 
@@ -801,9 +802,11 @@ class Qwen3_5GatedDeltaNet(nn.Module):
             return False
         if self.state_a.shape[1] % self._STATE_ROW:  # kernel needs heads aligned to the halves
             return False
-        from vllm_neuron.utils.neuron_utils import can_run_kernel
+        from vllm_neuron.utils.neuron_utils import can_run_kernel, is_gen2_platform
 
-        return can_run_kernel(x)
+        # The page DMAs use hardware descriptor generation (dge_mode.hwdge), gen3+ only:
+        # Trn1 / Inf2 run the PyTorch decode.
+        return can_run_kernel(x) and not is_gen2_platform()
 
     def _decode(self, hidden_states, md):
         if not self._use_decode_kernel(hidden_states):

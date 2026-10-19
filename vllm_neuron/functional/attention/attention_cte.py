@@ -7,7 +7,7 @@ from torch import Tensor
 
 from nkilib.core.attention.attention_cte import attention_cte
 from libtorch_neuronx_lite.nki.nki_hop import wrap_nki
-from vllm_neuron.utils.neuron_utils import can_run_kernel
+from vllm_neuron.utils.neuron_utils import can_run_kernel, nki_grid
 
 jitted_attention_cte = nki.jit()(attention_cte)
 
@@ -300,7 +300,7 @@ def flash_attention(
 
         wrapped_attention_cte = wrap_nki(jitted_attention_cte)
 
-        return wrapped_attention_cte[2](
+        return wrapped_attention_cte[nki_grid()](
             q=q,
             k=k,
             v=v,

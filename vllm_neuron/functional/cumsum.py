@@ -9,7 +9,7 @@ import nki
 from nkilib.core.cumsum.cumsum import cumsum as nkilib_cumsum
 
 from libtorch_neuronx_lite.nki.nki_hop import wrap_nki
-from vllm_neuron.utils.neuron_utils import can_run_kernel
+from vllm_neuron.utils.neuron_utils import can_run_kernel, nki_grid
 
 cumsum_jit = nki.jit()(nkilib_cumsum)
 
@@ -59,7 +59,7 @@ def cumsum(
 
     if _can_use_nki_cumsum(tensor, dim):
         cumsum_nki = wrap_nki(cumsum_jit)
-        return cumsum_nki[2](x=tensor, axis=dim)
+        return cumsum_nki[nki_grid()](x=tensor, axis=dim)
     else:
         return _cumsum_matmul(tensor)
 

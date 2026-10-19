@@ -329,7 +329,9 @@ def gdn_decode(mixed, z, b, a, conv_w, A_log, dt_bias, norm_w, state_a, state_b,
     """Torch entry (inside the compiled graph). Returns out [B, Hv*D]; states updated in place."""
     from libtorch_neuronx_lite.nki.nki_hop import wrap_nki
 
-    out, _, _ = wrap_nki(gdn_decode_kernel)[2](
+    from vllm_neuron.utils.neuron_utils import nki_grid
+
+    out, _, _ = wrap_nki(gdn_decode_kernel)[nki_grid()](
         mixed, z, b, a, conv_w, A_log, dt_bias, norm_w, state_a, state_b, slots, eps)
     return out
 

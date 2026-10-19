@@ -17,7 +17,7 @@ import nki
 from nkilib.core.max.cascaded_max import cascaded_max
 from vllm_neuron import envs
 from libtorch_neuronx_lite.nki.nki_hop import wrap_nki
-from vllm_neuron.utils.neuron_utils import can_run_kernel
+from vllm_neuron.utils.neuron_utils import can_run_kernel, nki_grid
 
 cascaded_max_jit = nki.jit()(cascaded_max)
 
@@ -126,7 +126,7 @@ def _compute_local_max(tensor: Tensor, dim: int) -> tuple[Tensor, Tensor]:
         input_tensor = tensor.squeeze(0) if is_3d else tensor
 
         cascaded_max_nki = wrap_nki(cascaded_max_jit)
-        value, index = cascaded_max_nki[2](input_tensor)
+        value, index = cascaded_max_nki[nki_grid()](input_tensor)
         # NKI kernel returns uint32 indices; gloo all_gather doesn't support
         # uint32, so cast to int64 (matching torch.max) in CPU mode.
         if envs.VLLM_NEURON_CPU_MODE:

@@ -6,7 +6,7 @@ from typing import Optional
 from torch import Tensor
 
 from libtorch_neuronx_lite.nki.nki_hop import wrap_nki
-from vllm_neuron.utils.neuron_utils import can_run_kernel
+from vllm_neuron.utils.neuron_utils import can_run_kernel, is_gen2_platform, nki_grid
 from vllm_neuron.utils.bucket_utils import SUPPORTED_KV_SEGMENT_SIZES
 import inspect as _inspect
 
@@ -161,6 +161,9 @@ def _can_use_segmented_kernel(q: Tensor) -> bool:
     if _wrapped_attention_segmented_cte is None:
         return False
     if not can_run_kernel(q):
+        return False
+    # Trn1 / Inf2: nkilib attention_segmented_cte uses dma_gather_transpose (gen3+).
+    if is_gen2_platform():
         return False
     return True
 
@@ -904,7 +907,7 @@ def segmented_attention(
         )
 
     wrapped = wrap_nki(kernel) if kernel is not None else _wrapped_attention_segmented_cte
-    result = wrapped[2](
+    result = wrapped[nki_grid()](
         q=q_seg,
         k_cache=k_cache,
         v_cache=v_cache,

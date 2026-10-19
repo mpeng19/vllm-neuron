@@ -33,19 +33,33 @@ def nki_grid() -> int:
 def is_gen2_platform() -> bool:
     """Trn1 / Inf2 (NeuronCore-v2). Kernels that need gen3 (Trn2+) must take another path.
 
-    Uses NEURON_PLATFORM_TARGET_OVERRIDE when set (CPU compile / CPU mode), else the runtime's
-    instance info. CPU mode without an override is treated as Trn2 (the default target).
+    Uses NEURON_PLATFORM_TARGET_OVERRIDE when set (CPU compile / CPU mode), else the host's
+    instance type. CPU mode without an override is treated as Trn2 (the default target).
     """
     target = os.environ.get("NEURON_PLATFORM_TARGET_OVERRIDE")
-    if target is None:
-        if envs.VLLM_NEURON_CPU_MODE:
-            return False
-        target = _runtime_platform_target()
-    return target.startswith(("trn1", "inf2"))
+    if target is not None:
+        return target.startswith(("trn1", "inf2"))
+    if envs.VLLM_NEURON_CPU_MODE:
+        return False
+    return _host_is_gen2()
+
+
+@torch._dynamo.assume_constant_result
+def _host_is_gen2() -> bool:
+    # Evaluated eagerly, once, outside the traced graph (called while tracing the model).
+    return _host_platform_target().startswith(("trn1", "inf2"))
 
 
 @functools.lru_cache(maxsize=1)
-def _runtime_platform_target() -> str:
+def _host_platform_target() -> str:
+    """Instance family from DMI (no runtime call, so safe in forked trace workers), else NRT."""
+    try:
+        with open("/sys/devices/virtual/dmi/id/product_name") as f:
+            name = f.read().strip()
+        if name.startswith(("trn", "inf")):
+            return name.split(".")[0]
+    except OSError:
+        pass
     from libtorch_neuronx_lite.compile.platform import get_platform_target
 
     return get_platform_target()

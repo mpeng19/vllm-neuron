@@ -1274,8 +1274,10 @@ class NeuronWorker(WorkerBase):
             logger.info("Tensor capture enabled after warmup")
 
         # Graphs that execute on device must not run before the parallel-trace forks.
-        self.model_runner.warm_up_kv_block_clearing()
-        self.model_runner.warm_up_mamba_align()
+        # CPU compile builds no executor: these small graphs compile on the device at startup.
+        if not envs.VLLM_NEURON_CPU_COMPILE:
+            self.model_runner.warm_up_kv_block_clearing()
+            self.model_runner.warm_up_mamba_align()
 
         num_batched_tokens_buckets = (
             self.model_runner.neuron_config.num_batched_tokens_buckets

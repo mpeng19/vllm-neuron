@@ -23,11 +23,22 @@ class InstanceConfig:
     instance_family: str
     max_neuron_devices: int
     efa_bdf_mapping: tuple[str, ...]
+    # Physical NeuronCores per Neuron device (chip): 8 on Trn2/Trn3, 2 on Trn1.
+    cores_per_device: int = 8
 
 
 # EFA BDF mappings per instance family
 # Each tuple maps Neuron device index to its corresponding EFA BDF address
 _INSTANCE_CONFIGS: dict[str, InstanceConfig] = {
+    # trn1.2xlarge: 1 chip, 2 NeuronCores (NeuronCore-v2, 16 GB HBM each), no EFA.
+    # trn1.32xlarge / trn1n.32xlarge: 16 chips, 32 NeuronCores, EFA. The EFA BDF mapping is
+    # not recorded yet, so EFA affinity needs NEURON_SKIP_EFA_AFFINITY=1 on Trn1.
+    "trn1": InstanceConfig(
+        instance_family="trn1",
+        max_neuron_devices=16,
+        efa_bdf_mapping=(),
+        cores_per_device=2,
+    ),
     "trn2": InstanceConfig(
         instance_family="trn2",
         max_neuron_devices=16,
@@ -105,10 +116,11 @@ def get_instance_family() -> str:
       1. If ``VLLM_NEURON_EFA_INSTANCE_FAMILY`` is set, its value is returned.
       2. Otherwise the family is read from
          ``/sys/devices/virtual/dmi/id/product_name`` and mapped by prefix:
-         any ``trn3*`` resolves to ``"trn3pds"`` and any ``trn2*`` to ``"trn2"``.
+         any ``trn3*`` resolves to ``"trn3pds"``, any ``trn2*`` to ``"trn2"`` and any
+         ``trn1*`` (trn1, trn1n) to ``"trn1"``.
 
     Returns:
-        str: Instance family (e.g., "trn2", "trn3pd", "trn3pds")
+        str: Instance family (e.g., "trn1", "trn2", "trn3pd", "trn3pds")
 
     Raises:
         RuntimeError: If the instance family cannot be determined
@@ -134,6 +146,8 @@ def get_instance_family() -> str:
         return "trn3pds"
     if family.startswith("trn2"):
         return "trn2"
+    if family.startswith("trn1"):
+        return "trn1"
     return family
 
 
@@ -156,7 +170,19 @@ def get_efa_bdf_mapping() -> tuple[str, ...]:
             f"Unsupported instance family: {family}. Supported: {supported}"
         )
 
-    return _INSTANCE_CONFIGS[family].efa_bdf_mapping
+    mapping = _INSTANCE_CONFIGS[family].efa_bdf_mapping
+    if not mapping:
+        raise ValueError(
+            f"No EFA BDF mapping recorded for instance family {family}; "
+            f"set NEURON_SKIP_EFA_AFFINITY=1 to skip EFA affinity."
+        )
+    return mapping
+
+
+def get_cores_per_device() -> int:
+    """Physical NeuronCores per Neuron device for the current instance (8 if unknown)."""
+    config = _INSTANCE_CONFIGS.get(get_instance_family())
+    return config.cores_per_device if config is not None else 8
 
 
 def get_efa_interface_from_bdf(bdf: str) -> str:
@@ -229,7 +255,7 @@ def get_efa_interface(local_rank: int, visible_devices: list[int]) -> str:
     lnc_config = int(
         os.environ.get("NEURON_LOGICAL_NC_CONFIG", str(_DEFAULT_LNC_CONFIG))
     )
-    nd = lnc * lnc_config // 8
+    nd = lnc * lnc_config // get_cores_per_device()
 
     try:
         device_stat = os.stat(f"/dev/neuron{nd}")

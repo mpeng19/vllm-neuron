@@ -189,6 +189,14 @@ def topk(
     ## TODO: remove after migrating topk to NKIv2 frontend
     tensor = tensor.to(torch.float32)
 
+    if gather_dim == dim and is_gen2_platform():
+        # Trn1 / Inf2: a top-k over the rank's vocab shard, compiled inside the model graph
+        # right after the LM head, saw only the shard's first 512 logits on device (greedy
+        # picked wrong tokens; the same code compiled alone is exact). Gathering the full
+        # logits first (as CPU sampling does) and taking one top-k over them is correct.
+        full = all_gather_tensor(tensor, gather_dim, group=process_group)
+        return _topk_torch(full, k, dim)
+
     # Step 1: Local topk on each rank
     local_k = min(k, tensor.shape[gather_dim]) if gather_dim == dim else k
     if _select_topk_method(tensor, local_k, dim) is not None:

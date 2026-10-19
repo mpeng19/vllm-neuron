@@ -517,5 +517,30 @@ def _topk_torch(tensor: Tensor, k: int, dim: int) -> tuple[Tensor, Tensor]:
     # No NKI method selected for this shape (CPU, kernels disabled, or out of
     # the kernel's envelope). Log the fallback so it's visible which calls did
     # not hit an accelerated kernel (grep ``[topk] kernel=torch``).
+    if (is_gen2_platform() and dim in (-1, tensor.ndim - 1)
+            and k <= _GEN2_TOPK_CHUNK < vocab_size):
+        _log_topk_choice("torch-chunked", n_rows, vocab_size, k, reason="gen2")
+        return _topk_torch_chunked(tensor, k, _GEN2_TOPK_CHUNK)
     _log_topk_choice("torch", n_rows, vocab_size, k, reason="no-nki-method")
     return torch.topk(tensor, k, dim=dim)
+
+
+# Trn1 / Inf2: neuronx-cc fails to lower torch.topk over a large last dim (a vocab shard)
+# with NCC_IXCG856 "MATCH_REPLACE8 Instruction expects at least 8 input elements per
+# partition"; top-k over 2048-wide chunks, then over the chunk winners, compiles.
+_GEN2_TOPK_CHUNK = 2048
+
+
+def _topk_torch_chunked(tensor: Tensor, k: int, chunk: int) -> tuple[Tensor, Tensor]:
+    """Exact top-k over the last dim in two stages: per ``chunk``-wide block, then over the
+    blocks' winners. Pads with -inf; returns (values, int64 indices) like torch.topk."""
+    lead, n = tensor.shape[:-1], tensor.shape[-1]
+    rows = tensor.reshape(-1, n)
+    padded = torch.nn.functional.pad(rows, (0, (-n) % chunk), value=float("-inf"))
+    blocks = padded.view(rows.shape[0], -1, chunk)
+    block_values, block_index = torch.topk(blocks, k, dim=-1)
+    base = torch.arange(blocks.shape[1], dtype=torch.int32, device=tensor.device).view(1, -1, 1) * chunk
+    candidates = (block_index.to(torch.int32) + base).reshape(rows.shape[0], -1)
+    values, pick = torch.topk(block_values.reshape(rows.shape[0], -1), k, dim=-1)
+    index = torch.gather(candidates, -1, pick.to(torch.int64)).to(torch.int64)
+    return values.reshape(*lead, k), index.reshape(*lead, k)

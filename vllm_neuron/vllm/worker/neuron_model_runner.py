@@ -8869,15 +8869,11 @@ class NeuronModelRunner(KVConnectorModelRunnerMixin, NeuronECConnectorModelRunne
                     num_kv_heads = kv_cache_spec.num_kv_heads
                     if kernel_block_size != block_size:
                         # Hybrid model: the KV manager's block is `ratio` kernel
-                        # blocks. With one KV head per rank a manager block
-                        # [heads=1, B, hd] is exactly `ratio` contiguous kernel
-                        # blocks [1, b, hd], so this is a pure reshape.
-                        if num_kv_heads != 1:
-                            raise NotImplementedError(
-                                "Hybrid attention/state models need exactly 1 KV "
-                                f"head per rank (got {num_kv_heads}); use a TP "
-                                "degree equal to the number of KV heads."
-                            )
+                        # blocks. Its bytes are viewed as `ratio` contiguous kernel
+                        # blocks [heads, b, hd]: the same byte range per manager
+                        # block (what the KV manager, state pages and connectors
+                        # see), with a kernel-block-major layout inside it. With one
+                        # KV head per rank this equals vLLM's [1, B, hd] layout.
                         num_blocks *= block_size // kernel_block_size
                         block_size = kernel_block_size
                     head_size = kv_cache_spec.head_size

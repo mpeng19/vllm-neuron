@@ -57,13 +57,6 @@ class Qwen3_5ForCausalLM(nn.Module):
         cfg = Qwen3_5Config.from_configs(hf_config)
         tp = get_tp_group().world_size
         cfg.validate_tp(tp)
-        if cfg.num_key_value_heads // tp != 1:
-            # Hybrid attention/state models split the KV manager's enlarged attention blocks
-            # into kernel-sized blocks with a pure reshape, which needs 1 KV head per rank.
-            raise NotImplementedError(
-                f"tensor_parallel_size must equal num_key_value_heads "
-                f"({cfg.num_key_value_heads}) for Qwen3.5/3.8; got {tp}."
-            )
 
 
 class Qwen3_5MTP(nn.Module):
